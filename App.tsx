@@ -9,24 +9,15 @@ import { GlassCard } from './components/GlassCard';
 import { CandidateCard } from './components/CandidateCard';
 import * as VoteService from './services/voteService';
 import * as SupabaseVotes from './services/supabaseVoteService';
+import * as SupabaseCandidates from './services/supabaseCandidateService';
 import { claimVoterCode } from './services/voterCodeService';
 
 // Main Component
 const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('home');
-  const [candidates, setCandidates] = useState<Candidate[]>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('ppgt_candidates');
-      if (stored) {
-        try {
-          return JSON.parse(stored);
-        } catch {
-          return CANDIDATES;
-        }
-      }
-    }
-    return CANDIDATES;
-  });
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
+  const [candidateError, setCandidateError] = useState('');
 
   const [isAdmin, setIsAdmin] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -58,11 +49,24 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('ppgt_candidates', JSON.stringify(candidates));
-      VoteService.syncVotesWithCandidates(candidates);
-    }
-  }, [candidates]);
+    let active = true;
+    const load = async () => {
+      setCandidatesLoading(true);
+      setCandidateError('');
+      const res = await SupabaseCandidates.fetchCandidates();
+      if (!active) return;
+      if (res.ok && res.data && res.data.length > 0) {
+        setCandidates(res.data);
+      } else {
+        // fallback ke konstanta jika Supabase kosong/galat
+        setCandidates(CANDIDATES);
+        if (!res.ok && res.error) setCandidateError(res.error);
+      }
+      setCandidatesLoading(false);
+    };
+    load();
+    return () => { active = false; };
+  }, []);
 
   const handleRequireAdmin = (after?: () => void) => {
     setPendingAction(() => after || null);
@@ -168,6 +172,11 @@ const App: React.FC = () => {
       </header>
 
       <main className="pt-28 pb-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto min-h-screen flex flex-col">
+        {candidateError && (
+          <div className="mb-4 text-center text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2">
+            {candidateError}
+          </div>
+        )}
         <AnimatePresence mode='wait'>
           {viewMode === 'home' && (
             <HomeView 
@@ -574,18 +583,21 @@ const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, 
     onSuccess();
   };
 
-  const handleNameUpdate = (id: string, name: string) => {
-    setCandidates(prev => prev.map(c => c.id === id ? { ...c, name } : c));
+  const handleNameUpdate = async (id: string, name: string) => {
+    const updated = candidates.map(c => c.id === id ? { ...c, name } : c);
+    setCandidates(updated);
+    await SupabaseCandidates.upsertCandidate(updated.find(c => c.id === id)!);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     setCandidates(prev => prev.filter(c => c.id !== id));
     if (selectedId === id) {
       setSelectedId(null);
     }
+    await SupabaseCandidates.deleteCandidate(id);
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     const name = newName.trim();
     if (!name) return;
     const newCandidate: Candidate = {
@@ -598,6 +610,7 @@ const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, 
     };
     setCandidates(prev => [...prev, newCandidate]);
     setNewName('');
+    await SupabaseCandidates.upsertCandidate(newCandidate);
   };
 
   return (
