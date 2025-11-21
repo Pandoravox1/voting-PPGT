@@ -41,7 +41,7 @@ const App: React.FC = () => {
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
   const [voterCode, setVoterCode] = useState(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('ppgt_voter_code') || '';
+      return sessionStorage.getItem('ppgt_voter_code') || '';
     }
     return '';
   });
@@ -107,7 +107,7 @@ const App: React.FC = () => {
       const normalizedCode = (result.code || code).toUpperCase();
       setVoterCode(normalizedCode);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('ppgt_voter_code', normalizedCode);
+        sessionStorage.setItem('ppgt_voter_code', normalizedCode);
       }
       setVoterInput('');
       setVoterLoginOpen(false);
@@ -121,7 +121,7 @@ const App: React.FC = () => {
   const handleVoterLogout = () => {
     setVoterCode('');
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('ppgt_voter_code');
+      sessionStorage.removeItem('ppgt_voter_code');
     }
   };
 

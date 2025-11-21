@@ -21,7 +21,7 @@ export const claimVoterCode = async (rawCode: string): Promise<ClaimResult> => {
   const { data, error } = await supabase
     .from('voter_codes')
     .update({ used: true, used_at: new Date().toISOString() })
-    .eq('code', code)
+    .ilike('code', code) // case-insensitive match so input/cell casing tidak memblok
     .eq('used', false)
     .select('code')
     .maybeSingle();
