@@ -9,17 +9,11 @@ import { Background } from './components/Background';
 import { GlassCard } from './components/GlassCard';
 import { CandidateCard } from './components/CandidateCard';
 import * as VoteService from './services/voteService';
+import { claimVoterCode } from './services/voterCodeService';
 
 // Main Component
 const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('home');
-  const allowedCodes = React.useMemo(() => {
-    const envCodes = (import.meta as any).env?.VITE_VOTER_CODES as string | undefined;
-    if (envCodes) {
-      return envCodes.split(',').map(c => c.trim()).filter(Boolean);
-    }
-    return Array.from({ length: 100 }, (_, i) => `PPGT-${String(i + 1).padStart(3, '0')}`);
-  }, []);
   const [candidates, setCandidates] = useState<Candidate[]>(() => {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('ppgt_candidates');
@@ -51,22 +45,10 @@ const App: React.FC = () => {
     }
     return '';
   });
-  const [usedCodes, setUsedCodes] = useState<string[]>(() => {
-    if (typeof window !== 'undefined') {
-      const raw = localStorage.getItem('ppgt_used_codes');
-      if (raw) {
-        try {
-          return JSON.parse(raw);
-        } catch {
-          return [];
-        }
-      }
-    }
-    return [];
-  });
   const [voterLoginOpen, setVoterLoginOpen] = useState(false);
   const [voterInput, setVoterInput] = useState('');
   const [voterError, setVoterError] = useState('');
+  const [voterLoading, setVoterLoading] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -106,35 +88,34 @@ const App: React.FC = () => {
     setViewMode('home');
   };
 
-  const handleVoterLogin = (e: React.FormEvent) => {
+  const handleVoterLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const code = voterInput.trim().toUpperCase();
     setVoterError('');
-
+    const code = voterInput.trim();
     if (!code) {
       setVoterError('Masukkan kode pemilih.');
       return;
     }
-    if (!allowedCodes.map(c => c.toUpperCase()).includes(code)) {
-      setVoterError('Kode tidak dikenal.');
-      return;
-    }
-    if (usedCodes.map(c => c.toUpperCase()).includes(code)) {
-      setVoterError('Kode ini sudah digunakan.');
-      return;
-    }
 
-    setVoterCode(code);
-    const updatedUsed = Array.from(new Set([...usedCodes, code]));
-    setUsedCodes(updatedUsed);
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('ppgt_voter_code', code);
-      localStorage.setItem('ppgt_used_codes', JSON.stringify(updatedUsed));
+    try {
+      setVoterLoading(true);
+      const result = await claimVoterCode(code);
+      if (!result.ok) {
+        setVoterError(result.error || 'Kode tidak valid atau sudah digunakan.');
+        return;
+      }
+      const normalizedCode = (result.code || code).toUpperCase();
+      setVoterCode(normalizedCode);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('ppgt_voter_code', normalizedCode);
+      }
+      setVoterInput('');
+      setVoterLoginOpen(false);
+    } catch (err: any) {
+      setVoterError(err?.message || 'Gagal memverifikasi kode.');
+    } finally {
+      setVoterLoading(false);
     }
-
-    setVoterInput('');
-    setVoterLoginOpen(false);
   };
 
   const handleVoterLogout = () => {
@@ -302,9 +283,10 @@ const App: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold"
+                  disabled={voterLoading}
+                  className={`px-4 py-2 rounded-lg font-semibold ${voterLoading ? 'bg-cyan-900 text-white/60' : 'bg-cyan-600 hover:bg-cyan-500'}`}
                 >
-                  Masuk
+                  {voterLoading ? 'Memeriksa...' : 'Masuk'}
                 </button>
               </div>
             </form>
