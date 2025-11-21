@@ -777,7 +777,6 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[]; isAdmin: boolean }> 
   useEffect(() => {
     let active = true;
     const load = async () => {
-      setLoadingCounts(true);
       setCountError('');
       try {
         const res = await SupabaseVotes.getVoteCountsByPosition(selectedPosition);
@@ -790,8 +789,6 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[]; isAdmin: boolean }> 
       } catch (err: any) {
         if (!active) return;
         setCountError(err?.message || 'Gagal memuat data.');
-      } finally {
-        if (active) setLoadingCounts(false);
       }
     };
     load();
@@ -870,35 +867,31 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[]; isAdmin: boolean }> 
 
         {resetError && <p className="text-sm text-red-400 mb-2">{resetError}</p>}
 
-        {loadingCounts ? (
-          <div className="text-center text-white/60 py-6">Memuat data...</div>
-        ) : (
-          <div className="space-y-3">
-            {counts.map((item) => {
-              const candidate = candidates.find(c => c.id === item.candidateId);
-              const percent = totalPositionVotes > 0 ? Math.round((item.count / totalPositionVotes) * 100) : 0;
-              return (
-                <div key={item.candidateId} className="bg-white/5 border border-white/10 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-white font-semibold">{candidate?.name || 'Unknown'}</div>
-                    <div className="text-cyan-300 font-bold">{percent}%</div>
-                  </div>
-                  <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden mb-2">
-                    <div
-                      className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
-                      style={{ width: `${percent}%` }}
-                    />
-                  </div>
-                  <div className="text-xs text-white/60">{item.count} suara</div>
+        <div className="space-y-3">
+          {counts.map((item) => {
+            const candidate = candidates.find(c => c.id === item.candidateId);
+            const percent = totalPositionVotes > 0 ? Math.round((item.count / totalPositionVotes) * 100) : 0;
+            return (
+              <div key={item.candidateId} className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-white font-semibold">{candidate?.name || 'Unknown'}</div>
+                  <div className="text-cyan-300 font-bold">{percent}%</div>
                 </div>
-              );
-            })}
+                <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden mb-2">
+                  <div
+                    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                    style={{ width: `${percent}%` }}
+                  />
+                </div>
+                <div className="text-xs text-white/60">{item.count} suara</div>
+              </div>
+            );
+          })}
 
-            {counts.length === 0 && !countError && (
-              <div className="text-center text-white/60 py-6">Belum ada kandidat untuk posisi ini.</div>
-            )}
-          </div>
-        )}
+          {counts.length === 0 && !countError && (
+            <div className="text-center text-white/60 py-6">Belum ada kandidat untuk posisi ini.</div>
+          )}
+        </div>
       </GlassCard>
     </motion.div>
   );
