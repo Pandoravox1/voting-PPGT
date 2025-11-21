@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { ArrowRight, Award, BarChart2, CheckCircle, ChevronRight, Vote, Users, LogOut, ChevronLeft, Lock, Wrench, Plus, Trash2, Save, Shield, KeyRound } from 'lucide-react';
 
 import { Position, ViewMode, Candidate } from './types';
@@ -30,7 +29,7 @@ const App: React.FC = () => {
 
   const [isAdmin, setIsAdmin] = useState(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('ppgt_is_admin') === 'true';
+      return sessionStorage.getItem('ppgt_is_admin') === 'true';
     }
     return false;
   });
@@ -49,6 +48,13 @@ const App: React.FC = () => {
   const [voterInput, setVoterInput] = useState('');
   const [voterError, setVoterError] = useState('');
   const [voterLoading, setVoterLoading] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // Bersihkan jejak login admin lama di localStorage agar tidak auto-login setelah restart.
+      localStorage.removeItem('ppgt_is_admin');
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -73,7 +79,7 @@ const App: React.FC = () => {
     if (loginUser === ADMIN_USER && loginPass === ADMIN_PASS) {
       setIsAdmin(true);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('ppgt_is_admin', 'true');
+        sessionStorage.setItem('ppgt_is_admin', 'true');
       }
       setLoginOpen(false);
       pendingAction?.();
@@ -705,6 +711,8 @@ const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, 
 // 3. Results Dashboard Component (Quick Count)
 const ResultsDashboard: React.FC<{ candidates: Candidate[] }> = ({ candidates }) => {
   const [trigger, setTrigger] = useState(0);
+  const positions = [Position.KETUA, Position.SEKRETARIS, Position.BENDAHARA];
+  const [selectedPosition, setSelectedPosition] = useState<Position>(positions[0]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -720,8 +728,8 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[] }> = ({ candidates })
     };
   }, []);
 
-  const positions = [Position.KETUA, Position.SEKRETARIS, Position.BENDAHARA];
-  const totalVotes = VoteService.getTotalVotes(candidates);
+  const voteCounts = VoteService.getVoteCountsByPosition(selectedPosition, candidates);
+  const totalVotesForPosition = voteCounts.reduce((sum, v) => sum + v.count, 0);
 
   return (
     <motion.div 
@@ -729,89 +737,72 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[] }> = ({ candidates })
       animate={{ opacity: 1 }}
       className="space-y-12"
     >
-      <div className="text-center mb-8">
+      <div className="text-center mb-6">
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-red-500/10 border border-red-500/30 text-red-300 text-sm font-bold animate-pulse mb-4">
           <div className="w-2 h-2 bg-red-500 rounded-full" /> LIVE UPDATE
         </div>
-        <h2 className="text-4xl font-bold">Hasil Quick Count Sementara</h2>
-        <div className="flex items-center justify-center gap-2 mt-4 text-blue-200">
-          <Users size={20} />
-          <span className="font-mono text-xl">{totalVotes}</span>
-          <span>Estimasi Total Pemilih</span>
-        </div>
+        <h2 className="text-4xl font-bold">Hasil Quick Count</h2>
+        <p className="text-white/60 mt-2">Pilih posisi untuk melihat persentase suara.</p>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-8">
-        {positions.map(position => (
-          <ResultChart 
-            key={position} 
-            position={position} 
-            trigger={trigger} 
-            candidates={candidates}
-          />
+      <div className="flex flex-wrap gap-3 justify-center">
+        {positions.map(pos => (
+          <button
+            key={pos}
+            onClick={() => setSelectedPosition(pos)}
+            className={`px-4 py-2 rounded-full border text-sm font-semibold transition-colors ${
+              selectedPosition === pos
+                ? 'bg-cyan-600 text-white border-cyan-500'
+                : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'
+            }`}
+          >
+            {pos}
+          </button>
         ))}
       </div>
+
+      <GlassCard className="p-6 max-w-3xl mx-auto w-full">
+        <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-4">
+          <div className="flex items-center gap-3">
+            <Award className="text-cyan-400" />
+            <div>
+              <h3 className="text-xl font-bold text-white">Posisi {selectedPosition}</h3>
+              <p className="text-white/60 text-sm">Persentase suara per kandidat.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-blue-200">
+            <Users size={18} />
+            <span className="font-semibold">{totalVotesForPosition} suara masuk</span>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {voteCounts.map((item, idx) => {
+            const candidate = candidates.find(c => c.id === item.candidateId);
+            const percent = totalVotesForPosition > 0 ? Math.round((item.count / totalVotesForPosition) * 100) : 0;
+            return (
+              <div key={item.candidateId} className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-white font-semibold">{candidate?.name || 'Unknown'}</div>
+                  <div className="text-cyan-300 font-bold">{percent}%</div>
+                </div>
+                <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden mb-2">
+                  <div
+                    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                    style={{ width: `${percent}%` }}
+                  />
+                </div>
+                <div className="text-xs text-white/60">{item.count} suara</div>
+              </div>
+            );
+          })}
+
+          {voteCounts.length === 0 && (
+            <div className="text-center text-white/60 py-6">Belum ada kandidat untuk posisi ini.</div>
+          )}
+        </div>
+      </GlassCard>
     </motion.div>
-  );
-};
-
-const ResultChart: React.FC<{ position: Position; trigger: number; candidates: Candidate[] }> = ({ position, candidates }) => {
-  const data = VoteService.getVoteCountsByPosition(position, candidates);
-  const chartData = data.map(d => {
-    const candidate = candidates.find(c => c.id === d.candidateId);
-    return {
-      name: candidate?.name || 'Unknown',
-      votes: d.count,
-      image: candidate?.photoUrl
-    };
-  });
-
-  const colors = ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'];
-
-  return (
-    <GlassCard className="p-6">
-      <div className="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
-        <Award className="text-cyan-400" />
-        <h3 className="text-xl font-bold text-white">Posisi {position}</h3>
-      </div>
-      
-      <div className="h-64 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" horizontal={false} />
-            <XAxis type="number" hide />
-            <YAxis 
-              dataKey="name" 
-              type="category" 
-              width={100} 
-              tick={{ fill: '#94a3b8', fontSize: 12 }}
-              interval={0}
-            />
-            <Tooltip 
-              cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-              contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff' }}
-            />
-            <Bar dataKey="votes" radius={[0, 4, 4, 0]} barSize={32}>
-              {chartData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-      
-      <div className="mt-4 space-y-3">
-         {chartData.map((item, idx) => (
-           <div key={idx} className="flex items-center justify-between text-sm">
-             <div className="flex items-center gap-3">
-               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: colors[idx % colors.length] }} />
-               <span className="text-gray-300">{item.name}</span>
-             </div>
-             <span className="font-bold font-mono text-white">{item.votes} Suara</span>
-           </div>
-         ))}
-      </div>
-    </GlassCard>
   );
 };
 
