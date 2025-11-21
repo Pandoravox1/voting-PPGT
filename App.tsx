@@ -202,7 +202,7 @@ const App: React.FC = () => {
           )}
           {viewMode === 'results' && (
             isAdmin ? (
-              <ResultsDashboard key="results" candidates={candidates} />
+              <ResultsDashboard key="results" candidates={candidates} isAdmin={isAdmin} />
             ) : (
               <AdminRequired onRequireAdmin={() => handleRequireAdmin(() => setViewMode('results'))} />
             )
@@ -748,7 +748,7 @@ const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, 
 };
 
 // 3. Results Dashboard Component (Quick Count)
-const ResultsDashboard: React.FC<{ candidates: Candidate[] }> = ({ candidates }) => {
+const ResultsDashboard: React.FC<{ candidates: Candidate[]; isAdmin: boolean }> = ({ candidates, isAdmin }) => {
   const [trigger, setTrigger] = useState(0);
   const positions = [Position.KETUA, Position.SEKRETARIS, Position.BENDAHARA];
   const [selectedPosition, setSelectedPosition] = useState<Position>(positions[0]);
@@ -757,6 +757,8 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[] }> = ({ candidates })
   const [totalVotes, setTotalVotes] = useState(0);
   const [loadingCounts, setLoadingCounts] = useState(false);
   const [countError, setCountError] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState('');
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -828,6 +830,25 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[] }> = ({ candidates })
             {pos}
           </button>
         ))}
+        {isAdmin && (
+          <button
+            onClick={async () => {
+              setResetError('');
+              setResetting(true);
+              const res = await SupabaseVotes.resetVotesByPosition(selectedPosition);
+              if (!res.ok) {
+                setResetError(res.error || 'Gagal reset suara.');
+              } else {
+                setTrigger(t => t + 1);
+              }
+              setResetting(false);
+            }}
+            className="ml-2 px-4 py-2 rounded-full border text-sm font-semibold bg-red-600 hover:bg-red-500 border-red-400/50"
+            disabled={resetting}
+          >
+            {resetting ? 'Mereset...' : `Reset ${selectedPosition}`}
+          </button>
+        )}
       </div>
 
       <GlassCard className="p-6 max-w-3xl mx-auto w-full">
@@ -846,6 +867,8 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[] }> = ({ candidates })
         </div>
 
         {countError && <p className="text-sm text-red-400 mb-3">{countError}</p>}
+
+        {resetError && <p className="text-sm text-red-400 mb-2">{resetError}</p>}
 
         {loadingCounts ? (
           <div className="text-center text-white/60 py-6">Memuat data...</div>

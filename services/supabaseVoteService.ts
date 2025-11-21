@@ -85,3 +85,15 @@ export const getTotalVotes = async (): Promise<number> => {
   }
   return count || 0;
 };
+
+export const resetVotesByPosition = async (position: Position): Promise<VoteResult> => {
+  ensureClient();
+  const { error } = await supabase
+    .from('votes')
+    .delete()
+    .eq('position', position);
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+};
