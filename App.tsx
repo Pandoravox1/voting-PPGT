@@ -52,13 +52,11 @@ const App: React.FC = () => {
     setCandidatesLoading(true);
     setCandidateError('');
     const res = await SupabaseCandidates.fetchCandidates();
-    if (res.ok && res.data && res.data.length > 0) {
+    if (res.ok && res.data) {
       setCandidates(res.data);
-    } else if (res.ok) {
-      // jika tabel kosong, tetap kosong
-      setCandidates([]);
-    } else {
+    } else if (!res.ok) {
       setCandidateError(res.error || 'Gagal memuat kandidat.');
+      // jangan timpa state lama jika error supaya tidak “revert” diam-diam
     }
     setCandidatesLoading(false);
   };
@@ -590,8 +588,8 @@ const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, 
     const res = await SupabaseCandidates.upsertCandidate(updated.find(c => c.id === id)!);
     if (!res.ok) {
       setSubmitError(res.error || 'Gagal menyimpan kandidat.');
-      await reloadCandidates();
     }
+    await reloadCandidates();
   };
 
   const handleDelete = async (id: string) => {
@@ -602,8 +600,8 @@ const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, 
     const res = await SupabaseCandidates.deleteCandidate(id);
     if (!res.ok) {
       setSubmitError(res.error || 'Gagal menghapus kandidat.');
-      await reloadCandidates();
     }
+    await reloadCandidates();
   };
 
   const handleAdd = async () => {
@@ -622,8 +620,8 @@ const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, 
     const res = await SupabaseCandidates.upsertCandidate(newCandidate);
     if (!res.ok) {
       setSubmitError(res.error || 'Gagal menambah kandidat.');
-      await reloadCandidates();
     }
+    await reloadCandidates();
   };
 
   return (
