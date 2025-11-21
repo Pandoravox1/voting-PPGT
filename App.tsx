@@ -48,24 +48,23 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const fetchCandidatesFromSupabase = async () => {
+    setCandidatesLoading(true);
+    setCandidateError('');
+    const res = await SupabaseCandidates.fetchCandidates();
+    if (res.ok && res.data && res.data.length > 0) {
+      setCandidates(res.data);
+    } else if (res.ok) {
+      // jika tabel kosong, tetap kosong
+      setCandidates([]);
+    } else {
+      setCandidateError(res.error || 'Gagal memuat kandidat.');
+    }
+    setCandidatesLoading(false);
+  };
+
   useEffect(() => {
-    let active = true;
-    const load = async () => {
-      setCandidatesLoading(true);
-      setCandidateError('');
-      const res = await SupabaseCandidates.fetchCandidates();
-      if (!active) return;
-      if (res.ok && res.data && res.data.length > 0) {
-        setCandidates(res.data);
-      } else {
-        // fallback ke konstanta jika Supabase kosong/galat
-        setCandidates(CANDIDATES);
-        if (!res.ok && res.error) setCandidateError(res.error);
-      }
-      setCandidatesLoading(false);
-    };
-    load();
-    return () => { active = false; };
+    fetchCandidatesFromSupabase();
   }, []);
 
   const handleRequireAdmin = (after?: () => void) => {
@@ -198,6 +197,7 @@ const App: React.FC = () => {
               onRequireAdmin={handleRequireAdmin}
               voterCode={voterCode}
               onRequireVoter={() => setVoterLoginOpen(true)}
+              reloadCandidates={fetchCandidatesFromSupabase}
             />
           )}
           {viewMode === 'results' && (
@@ -391,7 +391,7 @@ const HomeView: React.FC<{ onSelectMode: (mode: ViewMode) => void; isAdmin: bool
 };
 
 // 2. Voting Manager Component (Handles Logic Flow)
-const VotingManager: React.FC<{ onFinish: () => void; candidates: Candidate[]; setCandidates: React.Dispatch<React.SetStateAction<Candidate[]>>; isAdmin: boolean; onRequireAdmin: (after?: () => void) => void; voterCode: string; onRequireVoter: () => void }> = ({ onFinish, candidates, setCandidates, isAdmin, onRequireAdmin, voterCode, onRequireVoter }) => {
+const VotingManager: React.FC<{ onFinish: () => void; candidates: Candidate[]; setCandidates: React.Dispatch<React.SetStateAction<Candidate[]>>; isAdmin: boolean; onRequireAdmin: (after?: () => void) => void; voterCode: string; onRequireVoter: () => void; reloadCandidates: () => Promise<void> }> = ({ onFinish, candidates, setCandidates, isAdmin, onRequireAdmin, voterCode, onRequireVoter, reloadCandidates }) => {
   const [votedPositions, setVotedPositions] = useState<Position[]>([]);
   const [activePosition, setActivePosition] = useState<Position | null>(null);
   const [justVoted, setJustVoted] = useState<Position | null>(null);
@@ -549,9 +549,10 @@ interface BallotPaperProps {
   isAdmin: boolean;
   onRequireAdmin: (after?: () => void) => void;
   voterCode: string;
+  reloadCandidates: () => Promise<void>;
 }
 
-const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, candidates, setCandidates, isAdmin, onRequireAdmin, voterCode }) => {
+const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, candidates, setCandidates, isAdmin, onRequireAdmin, voterCode, reloadCandidates }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const candidatesForPosition = candidates.filter(c => c.position === position);
@@ -586,7 +587,11 @@ const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, 
   const handleNameUpdate = async (id: string, name: string) => {
     const updated = candidates.map(c => c.id === id ? { ...c, name } : c);
     setCandidates(updated);
-    await SupabaseCandidates.upsertCandidate(updated.find(c => c.id === id)!);
+    const res = await SupabaseCandidates.upsertCandidate(updated.find(c => c.id === id)!);
+    if (!res.ok) {
+      setSubmitError(res.error || 'Gagal menyimpan kandidat.');
+      await reloadCandidates();
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -594,7 +599,11 @@ const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, 
     if (selectedId === id) {
       setSelectedId(null);
     }
-    await SupabaseCandidates.deleteCandidate(id);
+    const res = await SupabaseCandidates.deleteCandidate(id);
+    if (!res.ok) {
+      setSubmitError(res.error || 'Gagal menghapus kandidat.');
+      await reloadCandidates();
+    }
   };
 
   const handleAdd = async () => {
@@ -610,7 +619,11 @@ const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, 
     };
     setCandidates(prev => [...prev, newCandidate]);
     setNewName('');
-    await SupabaseCandidates.upsertCandidate(newCandidate);
+    const res = await SupabaseCandidates.upsertCandidate(newCandidate);
+    if (!res.ok) {
+      setSubmitError(res.error || 'Gagal menambah kandidat.');
+      await reloadCandidates();
+    }
   };
 
   return (
