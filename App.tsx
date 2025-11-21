@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Award, BarChart2, CheckCircle, ChevronRight, Vote, Users, LogOut, ChevronLeft, Lock, Wrench, Plus, Trash2, Save, Shield, KeyRound } from 'lucide-react';
 
-import { Position, ViewMode, Candidate } from './types';
+import { Position, ViewMode, Candidate, VoteCount } from './types';
 import { CANDIDATES } from './constants';
 import { Background } from './components/Background';
 import { GlassCard } from './components/GlassCard';
 import { CandidateCard } from './components/CandidateCard';
 import * as VoteService from './services/voteService';
+import * as SupabaseVotes from './services/supabaseVoteService';
 import { claimVoterCode } from './services/voterCodeService';
 
 // Main Component
@@ -382,17 +383,33 @@ const HomeView: React.FC<{ onSelectMode: (mode: ViewMode) => void; isAdmin: bool
 
 // 2. Voting Manager Component (Handles Logic Flow)
 const VotingManager: React.FC<{ onFinish: () => void; candidates: Candidate[]; setCandidates: React.Dispatch<React.SetStateAction<Candidate[]>>; isAdmin: boolean; onRequireAdmin: (after?: () => void) => void; voterCode: string; onRequireVoter: () => void }> = ({ onFinish, candidates, setCandidates, isAdmin, onRequireAdmin, voterCode, onRequireVoter }) => {
-  const [votedPositions, setVotedPositions] = useState<Position[]>(VoteService.getUserVotedPositions());
+  const [votedPositions, setVotedPositions] = useState<Position[]>([]);
   const [activePosition, setActivePosition] = useState<Position | null>(null);
   const [justVoted, setJustVoted] = useState<Position | null>(null);
+  const [loadingVotes, setLoadingVotes] = useState(false);
 
-  const handleVoteSuccess = () => {
+  useEffect(() => {
+    const load = async () => {
+      if (!voterCode) {
+        setVotedPositions([]);
+        return;
+      }
+      setLoadingVotes(true);
+      const positions = await SupabaseVotes.getUserVotedPositions(voterCode);
+      setVotedPositions(positions);
+      setLoadingVotes(false);
+    };
+    load();
+  }, [voterCode]);
+
+  const handleVoteSuccess = async () => {
     if (activePosition) {
       setJustVoted(activePosition);
-      setVotedPositions(VoteService.getUserVotedPositions());
+      if (voterCode) {
+        const positions = await SupabaseVotes.getUserVotedPositions(voterCode);
+        setVotedPositions(positions);
+      }
       setActivePosition(null);
-      
-      // Clear success message after 3 seconds
       setTimeout(() => setJustVoted(null), 3000);
     }
   };
@@ -404,15 +421,16 @@ const VotingManager: React.FC<{ onFinish: () => void; candidates: Candidate[]; s
        ) : (
        <AnimatePresence mode='wait'>
           {activePosition ? (
-             <BallotPaper 
-                key="ballot"
-                position={activePosition}
-                onBack={() => setActivePosition(null)}
-                onSuccess={handleVoteSuccess}
-                candidates={candidates}
-                setCandidates={setCandidates}
-                isAdmin={isAdmin}
-                onRequireAdmin={onRequireAdmin}
+              <BallotPaper 
+                 key="ballot"
+                 position={activePosition}
+                 onBack={() => setActivePosition(null)}
+                 onSuccess={handleVoteSuccess}
+                 candidates={candidates}
+                 setCandidates={setCandidates}
+                 isAdmin={isAdmin}
+                 onRequireAdmin={onRequireAdmin}
+                 voterCode={voterCode}
              />
           ) : (
              <ElectionMenu 
@@ -521,14 +539,16 @@ interface BallotPaperProps {
   setCandidates: React.Dispatch<React.SetStateAction<Candidate[]>>;
   isAdmin: boolean;
   onRequireAdmin: (after?: () => void) => void;
+  voterCode: string;
 }
 
-const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, candidates, setCandidates, isAdmin, onRequireAdmin }) => {
+const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, candidates, setCandidates, isAdmin, onRequireAdmin, voterCode }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const candidatesForPosition = candidates.filter(c => c.position === position);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [newName, setNewName] = useState('');
+  const [submitError, setSubmitError] = useState('');
 
   useEffect(() => {
     if (!isAdmin && showAdminPanel) {
@@ -536,16 +556,22 @@ const BallotPaper: React.FC<BallotPaperProps> = ({ position, onBack, onSuccess, 
     }
   }, [isAdmin, showAdminPanel]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedId) return;
+    if (!voterCode) {
+      setSubmitError('Kode pemilih tidak ditemukan. Silakan login kode terlebih dahulu.');
+      return;
+    }
     setIsSubmitting(true);
-    
-    // Simulate network delay for dramatic effect
-    setTimeout(() => {
-      VoteService.submitVote(position, selectedId, candidates);
+    setSubmitError('');
+    const result = await SupabaseVotes.submitVote(position, selectedId, voterCode);
+    if (!result.ok) {
+      setSubmitError(result.error || 'Gagal mengirim suara.');
       setIsSubmitting(false);
-      onSuccess();
-    }, 1000);
+      return;
+    }
+    setIsSubmitting(false);
+    onSuccess();
   };
 
   const handleNameUpdate = (id: string, name: string) => {
@@ -713,6 +739,11 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[] }> = ({ candidates })
   const [trigger, setTrigger] = useState(0);
   const positions = [Position.KETUA, Position.SEKRETARIS, Position.BENDAHARA];
   const [selectedPosition, setSelectedPosition] = useState<Position>(positions[0]);
+  const [counts, setCounts] = useState<VoteCount[]>([]);
+  const [totalPositionVotes, setTotalPositionVotes] = useState(0);
+  const [totalVotes, setTotalVotes] = useState(0);
+  const [loadingCounts, setLoadingCounts] = useState(false);
+  const [countError, setCountError] = useState('');
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -728,8 +759,29 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[] }> = ({ candidates })
     };
   }, []);
 
-  const voteCounts = VoteService.getVoteCountsByPosition(selectedPosition, candidates);
-  const totalVotesForPosition = voteCounts.reduce((sum, v) => sum + v.count, 0);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setLoadingCounts(true);
+      setCountError('');
+      try {
+        const res = await SupabaseVotes.getVoteCountsByPosition(selectedPosition);
+        const totalPos = res.reduce((sum, v) => sum + v.count, 0);
+        const totalAll = await SupabaseVotes.getTotalVotes();
+        if (!active) return;
+        setCounts(res);
+        setTotalPositionVotes(totalPos);
+        setTotalVotes(totalAll);
+      } catch (err: any) {
+        if (!active) return;
+        setCountError(err?.message || 'Gagal memuat data.');
+      } finally {
+        if (active) setLoadingCounts(false);
+      }
+    };
+    load();
+    return () => { active = false; };
+  }, [selectedPosition, trigger]);
 
   return (
     <motion.div 
@@ -743,6 +795,10 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[] }> = ({ candidates })
         </div>
         <h2 className="text-4xl font-bold">Hasil Quick Count</h2>
         <p className="text-white/60 mt-2">Pilih posisi untuk melihat persentase suara.</p>
+        <div className="flex items-center justify-center gap-2 mt-4 text-blue-200">
+          <Users size={18} />
+          <span className="font-semibold">{totalVotes} suara (total)</span>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-3 justify-center">
@@ -772,35 +828,41 @@ const ResultsDashboard: React.FC<{ candidates: Candidate[] }> = ({ candidates })
           </div>
           <div className="flex items-center gap-2 text-blue-200">
             <Users size={18} />
-            <span className="font-semibold">{totalVotesForPosition} suara masuk</span>
+            <span className="font-semibold">{totalPositionVotes} suara masuk</span>
           </div>
         </div>
 
-        <div className="space-y-3">
-          {voteCounts.map((item, idx) => {
-            const candidate = candidates.find(c => c.id === item.candidateId);
-            const percent = totalVotesForPosition > 0 ? Math.round((item.count / totalVotesForPosition) * 100) : 0;
-            return (
-              <div key={item.candidateId} className="bg-white/5 border border-white/10 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-white font-semibold">{candidate?.name || 'Unknown'}</div>
-                  <div className="text-cyan-300 font-bold">{percent}%</div>
-                </div>
-                <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden mb-2">
-                  <div
-                    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
-                    style={{ width: `${percent}%` }}
-                  />
-                </div>
-                <div className="text-xs text-white/60">{item.count} suara</div>
-              </div>
-            );
-          })}
+        {countError && <p className="text-sm text-red-400 mb-3">{countError}</p>}
 
-          {voteCounts.length === 0 && (
-            <div className="text-center text-white/60 py-6">Belum ada kandidat untuk posisi ini.</div>
-          )}
-        </div>
+        {loadingCounts ? (
+          <div className="text-center text-white/60 py-6">Memuat data...</div>
+        ) : (
+          <div className="space-y-3">
+            {counts.map((item) => {
+              const candidate = candidates.find(c => c.id === item.candidateId);
+              const percent = totalPositionVotes > 0 ? Math.round((item.count / totalPositionVotes) * 100) : 0;
+              return (
+                <div key={item.candidateId} className="bg-white/5 border border-white/10 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-white font-semibold">{candidate?.name || 'Unknown'}</div>
+                    <div className="text-cyan-300 font-bold">{percent}%</div>
+                  </div>
+                  <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden mb-2">
+                    <div
+                      className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-white/60">{item.count} suara</div>
+                </div>
+              );
+            })}
+
+            {counts.length === 0 && !countError && (
+              <div className="text-center text-white/60 py-6">Belum ada kandidat untuk posisi ini.</div>
+            )}
+          </div>
+        )}
       </GlassCard>
     </motion.div>
   );
